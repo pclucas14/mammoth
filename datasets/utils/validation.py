@@ -4,6 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+import PIL
 from PIL import Image
 import numpy as np
 import os
@@ -13,18 +14,23 @@ from torchvision import datasets
 
 
 class ValidationDataset(torch.utils.data.Dataset):
-    def __init__(self, data: torch.Tensor, targets: np.ndarray,
+    def __init__(self, data: torch.Tensor, targets: np.ndarray, loader: callable=None,
         transform: transforms=None, target_transform: transforms=None) -> None:
         self.data = data
         self.targets = targets
         self.transform = transform
         self.target_transform = target_transform
+        self.loader = loader
 
     def __len__(self):
         return self.data.shape[0]
 
     def __getitem__(self, index):
         img, target = self.data[index], self.targets[index]
+
+        if self.loader is not None:
+            img = self.loader(img)
+
 
         # doing this so that it is consistent with all other datasets
         # to return a PIL Image
@@ -33,6 +39,8 @@ class ValidationDataset(torch.utils.data.Dataset):
                 img = Image.fromarray(np.uint8(img * 255))
             else:
                 img = Image.fromarray(img)
+        elif isinstance(img, PIL.Image.Image):
+            pass
         else:
             img = Image.fromarray(img.numpy())
 
@@ -65,9 +73,11 @@ def get_train_val(train: datasets, test_transform: transforms,
         torch.save(perm, directory + file_name)
     train.data = train.data[perm]
     train.targets = np.array(train.targets)[perm]
+
     test_dataset = ValidationDataset(train.data[:int(val_perc * dataset_length)],
                                 train.targets[:int(val_perc * dataset_length)],
-                                transform=test_transform)
+                                transform=test_transform,
+                                loader=train.loader if hasattr(train,'loader') else None)
     train.data = train.data[int(val_perc * dataset_length):]
     train.targets = train.targets[int(val_perc * dataset_length):]
 
