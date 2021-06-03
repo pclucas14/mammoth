@@ -18,21 +18,35 @@ def get_parser() -> ArgumentParser:
     return parser
 
 
-class Er(ContinualModel):
-    NAME = 'er'
+class ErAce(ContinualModel):
+    NAME = 'erace'
     COMPATIBILITY = ['class-il', 'domain-il', 'task-il', 'general-continual']
 
     def __init__(self, backbone, loss, args, transform):
-        super(Er, self).__init__(backbone, loss, args, transform)
+        super(ErAce, self).__init__(backbone, loss, args, transform)
         self.buffer = Buffer(self.args.buffer_size, self.device)
+        self.seen_so_far = torch.LongTensor(size=(0,)).to(self.device)
 
     def observe(self, inputs, labels, not_aug_inputs):
 
         real_batch_size = inputs.shape[0]
-
         self.opt.zero_grad()
 
+        present = labels.unique()
+        self.seen_so_far = torch.cat([self.seen_so_far, present]).unique()
+
         logits = self.net(inputs)
+
+        mask = torch.zeros_like(logits)
+
+        # unmask classes present in incoming batch
+        mask[:, present] = 1
+
+        # also unmask classes which we have not seen before
+        mask[:, self.seen_so_far.max():] = 1
+
+        logits = logits.masked_fill(mask == 0, -1e9)
+
         loss = self.loss(logits, labels)
 
         if not self.buffer.is_empty():
@@ -41,7 +55,7 @@ class Er(ContinualModel):
 
             loss += self.loss(self.net(buf_inputs), buf_labels)
 
-            # twice, to be fair
+            # let's do two draws to be like DERPP
             buf_inputs, buf_labels = self.buffer.get_data(
                 self.args.minibatch_size, transform=self.transform)
 
